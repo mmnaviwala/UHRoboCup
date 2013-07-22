@@ -9,6 +9,12 @@ from multiprocessing import Pipe
 
 parent, child = Pipe(True)
 
+# This is used to move current location to the a new position relative to
+# the current position.
+#   @param: x - meters forward
+#   @param: y - meters to either side (left is positive)
+#   @param: theta - the dirction to be facing at the end of the movement
+#       the units are in radians ranging from pi to - pi
 def move(x,y,theta):
     current = config.motionProxy.getRobotPosition(True)
     print "Initial Location: "
@@ -21,54 +27,49 @@ def move(x,y,theta):
     print v1
 #    config.motionProxy.moveTo(0,0,math.atan((y-current[1])/(x-current[0])))
     a = Process(target=autoCorrect, args=(v1[0],v1[1]))
-    a.start()
+#    a.start()
     while(isArrived(x,y) != True):
         config.motionProxy.move(v1[0],v1[1],v1[2])
-        v1 = parent.recv()
-#    config.motionProxy.moveTo(0,0,theta)
+#        v1 = parent.recv()
+    config.motionProxy.moveTo(0,0,theta)
 
+
+# This function is meant to correct the variations between the theortical
+#   world in which the programing moves in and actual real world conditions
+# NOTE: This function does not work.
 def autoCorrect(x,y):
     time.sleep(2)
     while(config.motionProxy.walkIsActive()):
         tolerance = .01
-        v2 = None
-        while(v2 == None):
-            try:
-                v2 = config.motionProxy.getRobotVelocity()
-            except:
-                pass
-        print "Actual Velocity Vector: "
-        print v2
-        m_v2 = math.sqrt(math.pow(v2[0], 2) + math.pow(v2[1], 2))
-        if(m_v2 != 0):
-            v2 = [(x-v2[0])/m_v2,(x-v2[1])/m_v2]
-            varient = [1-math.fabs((x-v2[0])/(x+v2[0])),
-                1-math.fabs((y-v2[1])/(y+v2[1]))]
-            v3 = [0,0,0]
-            print "Variation of Path: "
-            print varient
-            if((varient[0] > tolerance) | (varient[1] > tolerance)):
-#                if(varient[0] > tolerance):
-#                    v3[0] = -v2[0]
-                if(varient[1] > tolerance):
-                    v3[1] = -v2[1]
-                print "Correction Vector"
-                print v3
-                child.send(v3)
-                time.sleep(1)
-                v3 = [x,y,0]
-                child.send(v3)
+        p1 = config.motionProxy.getRobotPosition(True)
+        p2 = config.motionProxy.getNextRobotPosition()
+        v2 = [p2[0]-p1[0],p2[1]-p1[1]]
+        if(math.fabs((math.pi - math.atan(v2[1]/v2[0])) - math.atan(y/x)) > tolerance):
+            theta = (math.atan2(v2[1],v2[0]))
+            if(theta < 0):
+                v3 = [math.sin(theta),-math.cos(math.pi + theta),0]
+            elif(theta > 0):
+                v3 = [math.sin(theta),math.cos(math.pi - theta),0]
+            print "Actual Velocity Vector: "
+            print v2
+            print "Correction Vector"
+            print v3
+            child.send(v3)
+            time.sleep(1)
 
+# This is to figure out if we have arrived at the target location
+#    @param: x - wanted absolute x coordinates as per getRobotPosition function
+#    @param: y - wanted absolute y coordinates as per getRobotPosition function
 def isArrived(x,y):
     tolerance = .01
     current = config.motionProxy.getRobotPosition(True)
-    varient = [math.fabs((current[0]-x)/(current[0]+x)),
-        math.fabs((current[1]-y)/(current[1]+y)),
-        0]
+    varient = [math.fabs(current[0]-x),math.fabs(current[1]-y),0]
     if((varient[0] < tolerance) & (varient[1] < tolerance)):
         return 1
     else:
         return 0
-    
+
+# Rotates the robot theta radians(ranging from -pi to pi)
 def rotate(theta):
-    config.motionProxy.moveTo(0,0,theta)
+    current = config.motionProxy.getRobotPosition(True)
+    config.motionProxy.moveTo(0,0,current+theta)
